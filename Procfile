@@ -1,0 +1,1 @@
+web: java -jar products-api.jar

@@ -1,0 +1,90 @@
+name: Build and deploy to Elastic Beanstalk
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: products-api-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-south-1
+  EB_APPLICATION: products-api
+  EB_ENVIRONMENT: products-api-prod
+  EB_S3_BUCKET: ${{ vars.EB_S3_BUCKET }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build executable JAR
+        run: mvn --batch-mode --no-transfer-progress clean package
+
+      - name: Create Elastic Beanstalk bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p deploy
+          cp target/products-api.jar deploy/products-api.jar
+          cp Procfile deploy/Procfile
+          cd deploy
+          zip -q -j "../products-api-${GITHUB_SHA}-${GITHUB_RUN_NUMBER}.zip" products-api.jar Procfile
+
+      - name: Authenticate to AWS with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload deployment bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${EB_S3_BUCKET}" || { echo "EB_S3_BUCKET repository variable is required" >&2; exit 1; }
+          aws s3 cp \
+            "products-api-${GITHUB_SHA}-${GITHUB_RUN_NUMBER}.zip" \
+            "s3://${EB_S3_BUCKET}/products-api/${GITHUB_SHA}-${GITHUB_RUN_NUMBER}.zip"
+
+      - name: Create Elastic Beanstalk application version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_LABEL="products-api-${GITHUB_SHA}-${GITHUB_RUN_NUMBER}"
+          S3_KEY="products-api/${GITHUB_SHA}-${GITHUB_RUN_NUMBER}.zip"
+          aws elasticbeanstalk create-application-version \
+            --application-name "${EB_APPLICATION}" \
+            --version-label "${VERSION_LABEL}" \
+            --source-bundle S3Bucket="${EB_S3_BUCKET}",S3Key="${S3_KEY}" \
+            --process
+
+      - name: Deploy application version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_LABEL="products-api-${GITHUB_SHA}-${GITHUB_RUN_NUMBER}"
+          aws elasticbeanstalk update-environment \
+            --application-name "${EB_APPLICATION}" \
+            --environment-name "${EB_ENVIRONMENT}" \
+            --version-label "${VERSION_LABEL}"
+
+      - name: Wait for deployment
+        run: |
+          aws elasticbeanstalk wait environment-updated \
+            --environment-names "${EB_ENVIRONMENT}"
