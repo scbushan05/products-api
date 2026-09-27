@@ -22,6 +22,10 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Check out source
