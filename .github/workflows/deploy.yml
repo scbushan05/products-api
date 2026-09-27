@@ -22,7 +22,6 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: Products-api-env
     permissions:
       contents: read
       id-token: write
