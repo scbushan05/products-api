@@ -50,6 +50,10 @@ jobs:
           cp Procfile deploy/Procfile
           cd deploy
           zip -q -j "../products-api-${GITHUB_SHA}-${GITHUB_RUN_NUMBER}.zip" products-api.jar Procfile
+      - name: Debug GitHub OIDC claims
+        uses: github/actions-oidc-debugger@main
+        with:
+          audience: sts.amazonaws.com
 
       - name: Authenticate to AWS with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
